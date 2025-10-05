@@ -1,0 +1,36 @@
+"""Helpers for importing and preparing images."""
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Iterable, List
+
+from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QImage, QPixmap
+
+from .watermark import ALLOWED_INPUT_SUFFIXES
+
+
+def filter_supported_images(paths: Iterable[Path]) -> List[Path]:
+    unique: List[Path] = []
+    seen: set[Path] = set()
+    for path in paths:
+        suffix = path.suffix.lower()
+        if suffix in ALLOWED_INPUT_SUFFIXES and path.exists() and path.is_file():
+            if path not in seen:
+                unique.append(path)
+                seen.add(path)
+    return unique
+
+
+def load_qimage(path: Path) -> QImage:
+    image = QImage(str(path))
+    return image
+
+
+def make_thumbnail(path: Path, size: int = 96) -> QPixmap:
+    image = QImage(str(path))
+    if image.isNull():
+        return QPixmap()
+    scaled = image.scaled(size, size, transformMode=Qt.TransformationMode.SmoothTransformation, aspectRatioMode=Qt.AspectRatioMode.KeepAspectRatio)
+    pixmap = QPixmap.fromImage(scaled)
+    return pixmap
