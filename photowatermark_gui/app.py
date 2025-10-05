@@ -91,9 +91,11 @@ class MainWindow(QMainWindow):
         self.save_template_btn = QPushButton("保存模板")
         self.rename_template_btn = QPushButton("重命名")
         self.delete_template_btn = QPushButton("删除")
+        self.export_toolbar_button = QPushButton("导出图片")
         toolbar_layout.addWidget(self.save_template_btn)
         toolbar_layout.addWidget(self.rename_template_btn)
         toolbar_layout.addWidget(self.delete_template_btn)
+        toolbar_layout.addWidget(self.export_toolbar_button)
         right_layout.addLayout(toolbar_layout)
 
         self.preview = ImagePreview(self._on_preview_position_changed)
@@ -115,6 +117,7 @@ class MainWindow(QMainWindow):
         self.save_template_btn.clicked.connect(self._save_template)
         self.rename_template_btn.clicked.connect(self._rename_template)
         self.delete_template_btn.clicked.connect(self._delete_template)
+        self.export_toolbar_button.clicked.connect(self._export_all)
 
         import_action = QAction("导入图片", self)
         import_action.triggered.connect(self._prompt_import_images)

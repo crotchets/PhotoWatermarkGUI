@@ -39,7 +39,6 @@ class ImagePreview(QGraphicsView):
         self._pixmap_item = None
         self._image_size = None
         self._watermark_item = DraggableTextItem(self._on_position_changed)
-        self.scene().addItem(self._watermark_item)
         self._on_ratio_changed = on_position_ratio_changed
 
     def clear(self) -> None:
@@ -47,13 +46,14 @@ class ImagePreview(QGraphicsView):
         self._pixmap_item = None
         self._image_size = None
         self._watermark_item = DraggableTextItem(self._on_position_changed)
-        self.scene().addItem(self._watermark_item)
 
     def set_image(self, image: QImage) -> None:
         self.clear()
         pixmap = QPixmap.fromImage(image)
         self._pixmap_item = self.scene().addPixmap(pixmap)
         self._image_size = image.size()
+        self.scene().addItem(self._watermark_item)
+        self._watermark_item.setZValue(1)
         self._center_view()
 
     def apply_settings(self, settings: WatermarkSettings) -> None:
