@@ -7,10 +7,12 @@ from typing import List, Optional
 from PIL import Image
 
 from PyQt6.QtCore import QPointF, Qt
-from PyQt6.QtGui import QAction
+from PyQt6.QtGui import QAction, QColor, QFont
 from PyQt6.QtWidgets import (
     QButtonGroup,
+    QCheckBox,
     QComboBox,
+    QColorDialog,
     QFileDialog,
     QFormLayout,
     QGridLayout,
@@ -24,6 +26,7 @@ from PyQt6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QRadioButton,
+    QFontComboBox,
     QScrollArea,
     QSlider,
     QSpinBox,
@@ -125,9 +128,7 @@ class MainWindow(QMainWindow):
         self.export_toolbar_button.clicked.connect(self._export_all)
         self.batch_export_button.clicked.connect(self._export_all)
 
-        self._update_export_buttons()
-        self._update_quality_controls()
-        self._update_scale_controls()
+        self._apply_settings_to_ui()
 
         import_action = QAction("导入图片", self)
         import_action.triggered.connect(self._prompt_import_images)
@@ -181,11 +182,53 @@ class MainWindow(QMainWindow):
         opacity_layout.addWidget(self.opacity_spin, stretch=1)
         form.addRow("透明度", opacity_container)
 
+        self.font_combo = QFontComboBox()
+        self.font_combo.currentFontChanged.connect(self._on_font_family_changed)
+        form.addRow("字体", self.font_combo)
+
         self.font_size_spin = QSpinBox()
         self.font_size_spin.setRange(10, 200)
         self.font_size_spin.setValue(self.watermark_settings.font_size)
         self.font_size_spin.valueChanged.connect(self._on_font_size_changed)
         form.addRow("字体大小", self.font_size_spin)
+
+        weight_container = QWidget()
+        weight_layout = QHBoxLayout(weight_container)
+        weight_layout.setContentsMargins(0, 0, 0, 0)
+        weight_layout.setSpacing(12)
+        self.bold_check = QCheckBox("粗体")
+        self.italic_check = QCheckBox("斜体")
+        self.bold_check.toggled.connect(self._on_font_style_toggled)
+        self.italic_check.toggled.connect(self._on_font_style_toggled)
+        weight_layout.addWidget(self.bold_check)
+        weight_layout.addWidget(self.italic_check)
+        weight_layout.addStretch()
+        form.addRow("字形", weight_container)
+
+        color_container = QWidget()
+        color_layout = QHBoxLayout(color_container)
+        color_layout.setContentsMargins(0, 0, 0, 0)
+        color_layout.setSpacing(12)
+        self.color_button = QPushButton("选择颜色…")
+        self.color_button.clicked.connect(self._choose_font_color)
+        self.color_button.setFixedWidth(120)
+        color_layout.addWidget(self.color_button)
+        color_layout.addStretch()
+        form.addRow("字体颜色", color_container)
+        self._update_color_button()
+
+        effect_container = QWidget()
+        effect_layout = QHBoxLayout(effect_container)
+        effect_layout.setContentsMargins(0, 0, 0, 0)
+        effect_layout.setSpacing(12)
+        self.shadow_check = QCheckBox("阴影")
+        self.outline_check = QCheckBox("描边")
+        self.shadow_check.toggled.connect(self._on_effects_toggled)
+        self.outline_check.toggled.connect(self._on_effects_toggled)
+        effect_layout.addWidget(self.shadow_check)
+        effect_layout.addWidget(self.outline_check)
+        effect_layout.addStretch()
+        form.addRow("特效", effect_container)
 
         return group
 
@@ -398,6 +441,39 @@ class MainWindow(QMainWindow):
     def _on_font_size_changed(self, value: int) -> None:
         self.watermark_settings.font_size = value
         self.preview.apply_settings(self.watermark_settings)
+
+    def _on_font_family_changed(self, font: QFont) -> None:
+        self.watermark_settings.font_family = font.family()
+        self.preview.apply_settings(self.watermark_settings)
+
+    def _on_font_style_toggled(self) -> None:
+        self.watermark_settings.bold = self.bold_check.isChecked()
+        self.watermark_settings.italic = self.italic_check.isChecked()
+        self.preview.apply_settings(self.watermark_settings)
+
+    def _choose_font_color(self) -> None:
+        current = QColor(self.watermark_settings.color or "#FFFFFF")
+        color = QColorDialog.getColor(current, self, "选择字体颜色")
+        if not color.isValid():
+            return
+        self.watermark_settings.color = color.name(QColor.NameFormat.HexRgb)
+        self._update_color_button()
+        self.preview.apply_settings(self.watermark_settings)
+
+    def _on_effects_toggled(self) -> None:
+        self.watermark_settings.shadow = self.shadow_check.isChecked()
+        self.watermark_settings.outline = self.outline_check.isChecked()
+        self.preview.apply_settings(self.watermark_settings)
+
+    def _update_color_button(self) -> None:
+        color = QColor(self.watermark_settings.color or "#FFFFFF")
+        name = color.name(QColor.NameFormat.HexRgb).upper()
+        luminance = 0.299 * color.red() + 0.587 * color.green() + 0.114 * color.blue()
+        text_color = "#000000" if luminance > 180 else "#FFFFFF"
+        self.color_button.setText(name)
+        self.color_button.setStyleSheet(
+            f"background-color: {name}; color: {text_color}; border: 1px solid #666;"
+        )
 
     def _apply_position(self, ratio: QPointF) -> None:
         self.watermark_settings.position_ratio = ratio
@@ -676,6 +752,28 @@ class MainWindow(QMainWindow):
         self.font_size_spin.setValue(self.watermark_settings.font_size)
         self.font_size_spin.blockSignals(False)
 
+        self.font_combo.blockSignals(True)
+        self.font_combo.setCurrentFont(QFont(self.watermark_settings.font_family or "Arial"))
+        self.font_combo.blockSignals(False)
+
+        self.bold_check.blockSignals(True)
+        self.bold_check.setChecked(self.watermark_settings.bold)
+        self.bold_check.blockSignals(False)
+
+        self.italic_check.blockSignals(True)
+        self.italic_check.setChecked(self.watermark_settings.italic)
+        self.italic_check.blockSignals(False)
+
+        self.shadow_check.blockSignals(True)
+        self.shadow_check.setChecked(self.watermark_settings.shadow)
+        self.shadow_check.blockSignals(False)
+
+        self.outline_check.blockSignals(True)
+        self.outline_check.setChecked(self.watermark_settings.outline)
+        self.outline_check.blockSignals(False)
+
+        self._update_color_button()
+
         if self.export_settings.output_dir:
             self.output_dir_edit.setText(str(self.export_settings.output_dir))
         else:
@@ -697,6 +795,7 @@ class MainWindow(QMainWindow):
         self._update_quality_controls()
         self._update_scale_controls()
         self._update_export_buttons()
+        self.preview.apply_settings(self.watermark_settings)
 
     def closeEvent(self, event) -> None:
         data = {

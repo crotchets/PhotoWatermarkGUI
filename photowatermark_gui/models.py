@@ -15,6 +15,12 @@ class WatermarkSettings:
     text: str = "Sample Watermark"
     opacity: int = 70  # 0-100
     font_size: int = 36
+    font_family: str = "Arial"
+    bold: bool = False
+    italic: bool = False
+    color: str = "#FFFFFF"
+    shadow: bool = False
+    outline: bool = False
     position_ratio: QPointF = field(default_factory=lambda: QPointF(0.5, 0.5))
     rotation: float = 0.0
 
@@ -23,6 +29,12 @@ class WatermarkSettings:
             "text": self.text,
             "opacity": self.opacity,
             "font_size": self.font_size,
+            "font_family": self.font_family,
+            "bold": self.bold,
+            "italic": self.italic,
+            "color": self.color,
+            "shadow": self.shadow,
+            "outline": self.outline,
             "rotation": self.rotation,
             "position_ratio": {
                 "x": self.position_ratio.x(),
@@ -39,6 +51,12 @@ class WatermarkSettings:
             text=raw.get("text", "Sample Watermark"),
             opacity=int(raw.get("opacity", 70)),
             font_size=int(raw.get("font_size", 36)),
+            font_family=raw.get("font_family", "Arial"),
+            bold=bool(raw.get("bold", False)),
+            italic=bool(raw.get("italic", False)),
+            color=raw.get("color", "#FFFFFF"),
+            shadow=bool(raw.get("shadow", False)),
+            outline=bool(raw.get("outline", False)),
             rotation=float(raw.get("rotation", 0.0)),
             position_ratio=QPointF(
                 float(ratio.get("x", 0.5)),

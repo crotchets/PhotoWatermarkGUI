@@ -1,31 +1,18 @@
 """Watermark rendering helpers."""
 from __future__ import annotations
 
-import os
 from pathlib import Path
 from typing import Tuple
 
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageQt
+
+from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QColor, QFont, QFontMetrics, QPainter, QPainterPath, QPen
+from PyQt6.QtGui import QImage as QtImage
 
 from ..models import ExportSettings, WatermarkSettings
 
 ALLOWED_INPUT_SUFFIXES = {".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff"}
-DEFAULT_FONT_FALLBACKS = [
-    # Windows
-    Path(os.environ.get("WINDIR", "C:/Windows")) / "Fonts" / "arial.ttf",
-    # macOS
-    Path("/Library/Fonts/Arial.ttf"),
-    Path("/System/Library/Fonts/Supplemental/Arial.ttf"),
-    # Linux common fallback
-    Path("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"),
-]
-
-
-def locate_default_font() -> Path:
-    for candidate in DEFAULT_FONT_FALLBACKS:
-        if candidate.exists():
-            return candidate
-    raise FileNotFoundError("No default font file found. Please install Arial or DejaVuSans.")
 
 
 def scale_image(image: Image.Image, settings: ExportSettings) -> Image.Image:
@@ -46,46 +33,95 @@ def scale_image(image: Image.Image, settings: ExportSettings) -> Image.Image:
     return image
 
 
+def _build_text_path(text: str, font: QFont) -> QPainterPath:
+    metrics = QFontMetrics(font)
+    lines = text.splitlines() or [""]
+    path = QPainterPath()
+    y = 0
+    for line in lines:
+        content = line or " "
+        path.addText(0, y + metrics.ascent(), font, content)
+        y += metrics.lineSpacing()
+    if path.isEmpty():
+        path.addText(0, metrics.ascent(), font, " ")
+    rect = path.boundingRect()
+    if rect.x() != 0 or rect.y() != 0:
+        path.translate(-rect.x(), -rect.y())
+    return path
+
+
+def _parse_color(color: str, alpha: int) -> QColor:
+    qcolor = QColor(color if color else "#FFFFFF")
+    qcolor.setAlpha(alpha)
+    return qcolor
+
+
 def render_text_watermark(
     base_size: Tuple[int, int],
     watermark: WatermarkSettings,
     font_path: Path | None = None,
 ) -> Image.Image:
     width, height = base_size
-    canvas = Image.new("RGBA", base_size, (0, 0, 0, 0))
-    drawer = ImageDraw.Draw(canvas)
-    font_file = font_path or locate_default_font()
-    try:
-        font = ImageFont.truetype(str(font_file), watermark.font_size)
-    except OSError:
-        font = ImageFont.load_default()
+    if width <= 0 or height <= 0:
+        return Image.new("RGBA", base_size, (0, 0, 0, 0))
 
-    text_lines = watermark.text.splitlines() or [""]
-    line_heights = []
-    line_widths = []
-    for line in text_lines:
-        bbox = drawer.textbbox((0, 0), line if line else " ", font=font)
-        line_widths.append(bbox[2] - bbox[0])
-        line_heights.append(bbox[3] - bbox[1])
+    image = QtImage(width, height, QtImage.Format.Format_ARGB32_Premultiplied)
+    image.fill(Qt.GlobalColor.transparent)
 
-    text_width = max(line_widths)
-    text_height = sum(line_heights)
+    painter = QPainter(image)
+    painter.setRenderHints(
+        QPainter.RenderHint.Antialiasing
+        | QPainter.RenderHint.TextAntialiasing
+        | QPainter.RenderHint.SmoothPixmapTransform
+    )
 
-    # compute top-left via ratio (0-1) relative to remaining space
-    available_w = max(width - text_width, 1)
-    available_h = max(height - text_height, 1)
-    x = watermark.position_ratio.x() * available_w
-    y = watermark.position_ratio.y() * available_h
+    font = QFont(watermark.font_family or "Arial", pointSize=watermark.font_size)
+    font.setBold(watermark.bold)
+    font.setItalic(watermark.italic)
+    path = _build_text_path(watermark.text, font)
+    rect = path.boundingRect()
+
+    available_w = max(width - rect.width(), 1)
+    available_h = max(height - rect.height(), 1)
+    pos_x = watermark.position_ratio.x() * available_w
+    pos_y = watermark.position_ratio.y() * available_h
+
+    translate_x = pos_x
+    translate_y = pos_y
+
     alpha = int(255 * (watermark.opacity / 100))
+    fill_color = _parse_color(watermark.color, alpha)
+    shadow_offset = max(2.0, font.pointSizeF() * 0.08)
+    outline_width = max(1.5, font.pointSizeF() * 0.1)
 
-    current_y = y
-    for line, line_height in zip(text_lines, line_heights):
-        drawer.text((x, current_y), line, font=font, fill=(255, 255, 255, alpha))
-        current_y += line_height
-
+    painter.translate(translate_x, translate_y)
     if watermark.rotation:
-        canvas = canvas.rotate(-watermark.rotation, expand=1, center=(width / 2, height / 2))
-    return canvas
+        center = rect.center()
+        painter.translate(center)
+        painter.rotate(-watermark.rotation)
+        painter.translate(-center)
+
+    if watermark.shadow:
+        shadow_color = QColor(0, 0, 0, int(alpha * 0.6))
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(shadow_color)
+        painter.drawPath(path.translated(shadow_offset, shadow_offset))
+
+    painter.setPen(Qt.PenStyle.NoPen)
+    painter.setBrush(fill_color)
+    painter.drawPath(path)
+
+    if watermark.outline:
+        outline_color = QColor(0, 0, 0, alpha)
+        pen = QPen(outline_color, outline_width, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin)
+        painter.setPen(pen)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawPath(path)
+
+    painter.end()
+
+    pil_image = ImageQt.ImageQt(image)
+    return pil_image.copy()
 
 
 def compose_watermark(
