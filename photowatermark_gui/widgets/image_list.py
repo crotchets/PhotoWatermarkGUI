@@ -25,7 +25,7 @@ class ImageListWidget(QListWidget):
         self._on_paths_removed = on_paths_removed
         self.setSelectionMode(QListWidget.SelectionMode.SingleSelection)
         self.setAcceptDrops(True)
-        self.setDragDropMode(QListWidget.DragDropMode.NoDragDrop)
+        self.setDragDropMode(QListWidget.DragDropMode.DropOnly)
 
     def dragEnterEvent(self, event) -> None:
         if event.mimeData().hasUrls():

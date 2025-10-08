@@ -280,14 +280,32 @@ class MainWindow(QMainWindow):
 
     def _add_images(self, paths: List[Path]) -> None:
         candidates = image_loader.filter_supported_images(paths)
-        new_paths = [p for p in candidates if p not in self.images]
-        if not new_paths:
+        if not candidates:
+            QMessageBox.information(self, "提示", "未找到可导入的图片文件。")
             return
+        new_paths: List[Path] = []
+        duplicates: List[Path] = []
+        existing = set(self.images)
+        for path in candidates:
+            if path in existing:
+                duplicates.append(path)
+            else:
+                new_paths.append(path)
+                existing.add(path)
+
+        if not new_paths:
+            QMessageBox.information(self, "提示", "这些图片已在列表中，无需重复导入。")
+            return
+
         self.images.extend(new_paths)
         self.image_list.populate(self.images, selected=self.current_image)
         if not self.current_image and self.images:
             self.image_list.setCurrentRow(0)
-        QMessageBox.information(self, "完成", f"成功导入 {len(new_paths)} 张图片。")
+
+        message = f"成功导入 {len(new_paths)} 张图片。"
+        if duplicates:
+            message += f"\n已忽略 {len(duplicates)} 张重复图片。"
+        QMessageBox.information(self, "完成", message)
         self._update_export_buttons()
 
     def _remove_images(self, paths: List[Path]) -> None:
