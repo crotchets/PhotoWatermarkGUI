@@ -160,15 +160,39 @@ class MainWindow(QMainWindow):
     def _build_watermark_group(self) -> QWidget:
         group = QGroupBox("水印配置")
         form = QFormLayout(group)
+        form.setLabelAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+
+        self._text_mode_widgets: list[QWidget] = []
+        self._image_mode_widgets: list[QWidget] = []
+
+        mode_container = QWidget()
+        mode_layout = QHBoxLayout(mode_container)
+        mode_layout.setContentsMargins(0, 0, 0, 0)
+        mode_layout.setSpacing(12)
+        self.mode_group = QButtonGroup(self)
+        self.mode_text_radio = QRadioButton("文字水印")
+        self.mode_image_radio = QRadioButton("图片水印")
+        self.mode_group.addButton(self.mode_text_radio)
+        self.mode_group.addButton(self.mode_image_radio)
+        self.mode_text_radio.setChecked(self.watermark_settings.mode != "image")
+        self.mode_image_radio.setChecked(self.watermark_settings.mode == "image")
+        self.mode_text_radio.toggled.connect(self._on_mode_toggled)
+        mode_layout.addWidget(self.mode_text_radio)
+        mode_layout.addWidget(self.mode_image_radio)
+        mode_layout.addStretch()
+        form.addRow("类型", mode_container)
 
         self.text_edit = QTextEdit()
         self.text_edit.setPlaceholderText("输入水印文本，可多行")
         self.text_edit.setPlainText(self.watermark_settings.text)
         self.text_edit.textChanged.connect(self._on_text_changed)
         form.addRow("文本内容", self.text_edit)
+        self._register_text_row(form, self.text_edit)
 
         opacity_container = QWidget()
         opacity_layout = QHBoxLayout(opacity_container)
+        opacity_layout.setContentsMargins(0, 0, 0, 0)
+        opacity_layout.setSpacing(8)
         self.opacity_slider = QSlider(Qt.Orientation.Horizontal)
         self.opacity_slider.setRange(0, 100)
         self.opacity_slider.setValue(self.watermark_settings.opacity)
@@ -185,12 +209,14 @@ class MainWindow(QMainWindow):
         self.font_combo = QFontComboBox()
         self.font_combo.currentFontChanged.connect(self._on_font_family_changed)
         form.addRow("字体", self.font_combo)
+        self._register_text_row(form, self.font_combo)
 
         self.font_size_spin = QSpinBox()
         self.font_size_spin.setRange(10, 200)
         self.font_size_spin.setValue(self.watermark_settings.font_size)
         self.font_size_spin.valueChanged.connect(self._on_font_size_changed)
         form.addRow("字体大小", self.font_size_spin)
+        self._register_text_row(form, self.font_size_spin)
 
         weight_container = QWidget()
         weight_layout = QHBoxLayout(weight_container)
@@ -204,6 +230,7 @@ class MainWindow(QMainWindow):
         weight_layout.addWidget(self.italic_check)
         weight_layout.addStretch()
         form.addRow("字形", weight_container)
+        self._register_text_row(form, weight_container)
 
         color_container = QWidget()
         color_layout = QHBoxLayout(color_container)
@@ -215,6 +242,7 @@ class MainWindow(QMainWindow):
         color_layout.addWidget(self.color_button)
         color_layout.addStretch()
         form.addRow("字体颜色", color_container)
+        self._register_text_row(form, color_container)
         self._update_color_button()
 
         effect_container = QWidget()
@@ -229,6 +257,43 @@ class MainWindow(QMainWindow):
         effect_layout.addWidget(self.outline_check)
         effect_layout.addStretch()
         form.addRow("特效", effect_container)
+        self._register_text_row(form, effect_container)
+
+        image_path_container = QWidget()
+        image_path_layout = QHBoxLayout(image_path_container)
+        image_path_layout.setContentsMargins(0, 0, 0, 0)
+        image_path_layout.setSpacing(8)
+        self.image_path_edit = QLineEdit()
+        self.image_path_edit.setReadOnly(True)
+        self.image_path_edit.setPlaceholderText("尚未选择图片")
+        self.image_choose_button = QPushButton("选择…")
+        self.image_clear_button = QPushButton("清除")
+        self.image_choose_button.clicked.connect(self._choose_watermark_image)
+        self.image_clear_button.clicked.connect(self._clear_watermark_image)
+        image_path_layout.addWidget(self.image_path_edit, stretch=1)
+        image_path_layout.addWidget(self.image_choose_button)
+        image_path_layout.addWidget(self.image_clear_button)
+        form.addRow("水印图片", image_path_container)
+        self._register_image_row(form, image_path_container)
+
+        image_scale_container = QWidget()
+        image_scale_layout = QHBoxLayout(image_scale_container)
+        image_scale_layout.setContentsMargins(0, 0, 0, 0)
+        image_scale_layout.setSpacing(8)
+        self.image_scale_slider = QSlider(Qt.Orientation.Horizontal)
+        self.image_scale_slider.setRange(1, 400)
+        self.image_scale_spin = QSpinBox()
+        self.image_scale_spin.setRange(1, 400)
+        self.image_scale_spin.setSuffix(" %")
+        self.image_scale_slider.valueChanged.connect(self.image_scale_spin.setValue)
+        self.image_scale_spin.valueChanged.connect(self._on_image_scale_changed)
+        image_scale_layout.addWidget(self.image_scale_slider, stretch=3)
+        image_scale_layout.addWidget(self.image_scale_spin, stretch=1)
+        form.addRow("缩放比例", image_scale_container)
+        self._register_image_row(form, image_scale_container)
+
+        self._sync_image_controls()
+        self._update_mode_visibility()
 
         return group
 
@@ -475,6 +540,117 @@ class MainWindow(QMainWindow):
             f"background-color: {name}; color: {text_color}; border: 1px solid #666;"
         )
 
+    def _register_text_row(self, form: QFormLayout, widget: QWidget) -> None:
+        if not hasattr(self, "_text_mode_widgets"):
+            return
+        label = form.labelForField(widget)
+        if label:
+            self._text_mode_widgets.append(label)
+        self._text_mode_widgets.append(widget)
+
+    def _register_image_row(self, form: QFormLayout, widget: QWidget) -> None:
+        if not hasattr(self, "_image_mode_widgets"):
+            return
+        label = form.labelForField(widget)
+        if label:
+            self._image_mode_widgets.append(label)
+        self._image_mode_widgets.append(widget)
+
+    def _sync_image_controls(self) -> None:
+        if not hasattr(self, "image_scale_spin"):
+            return
+        scale = self.watermark_settings.image_scale or 100
+        scale = max(1, min(400, scale))
+        self.image_scale_spin.blockSignals(True)
+        self.image_scale_spin.setValue(scale)
+        self.image_scale_spin.blockSignals(False)
+        self.image_scale_slider.blockSignals(True)
+        self.image_scale_slider.setValue(scale)
+        self.image_scale_slider.blockSignals(False)
+        self._update_image_path_display()
+
+    def _update_image_path_display(self) -> None:
+        if not hasattr(self, "image_path_edit"):
+            return
+        path_value = self.watermark_settings.image_path
+        display_text = ""
+        has_path = False
+        if path_value:
+            path_obj = Path(path_value)
+            if path_obj.exists():
+                display_text = str(path_obj)
+                has_path = True
+            else:
+                self.watermark_settings.image_path = None
+        self.image_path_edit.setText(display_text)
+        self.image_clear_button.setEnabled(has_path)
+
+    def _update_mode_visibility(self) -> None:
+        text_visible = self.watermark_settings.mode != "image"
+        for widget in getattr(self, "_text_mode_widgets", []):
+            widget.setVisible(text_visible)
+            widget.setEnabled(text_visible)
+        image_visible = self.watermark_settings.mode == "image"
+        for widget in getattr(self, "_image_mode_widgets", []):
+            widget.setVisible(image_visible)
+            widget.setEnabled(image_visible)
+
+    def _on_mode_toggled(self) -> None:
+        mode = "text" if self.mode_text_radio.isChecked() else "image"
+        if self.watermark_settings.mode != mode:
+            self.watermark_settings.mode = mode
+        self._update_mode_visibility()
+        self.preview.apply_settings(self.watermark_settings)
+
+    def _choose_watermark_image(self) -> None:
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "选择水印图片",
+            "",
+            "图片文件 (*.png *.jpg *.jpeg *.bmp *.tif *.tiff)",
+        )
+        if not file_path:
+            return
+        path_obj = Path(file_path)
+        if not path_obj.exists():
+            QMessageBox.warning(self, "提示", "选中的文件不存在。")
+            return
+        self.watermark_settings.image_path = str(path_obj)
+        self._sync_image_controls()
+        if not self.mode_image_radio.isChecked():
+            self.mode_image_radio.setChecked(True)
+        self.preview.apply_settings(self.watermark_settings)
+
+    def _clear_watermark_image(self) -> None:
+        if not self.watermark_settings.image_path:
+            return
+        self.watermark_settings.image_path = None
+        self._sync_image_controls()
+        self.preview.apply_settings(self.watermark_settings)
+
+    def _on_image_scale_changed(self, value: int) -> None:
+        if not hasattr(self, "image_scale_spin"):
+            return
+        clamped = max(1, min(400, int(value)))
+        if self.image_scale_spin.value() != clamped:
+            self.image_scale_spin.blockSignals(True)
+            self.image_scale_spin.setValue(clamped)
+            self.image_scale_spin.blockSignals(False)
+        if self.image_scale_slider.value() != clamped:
+            self.image_scale_slider.blockSignals(True)
+            self.image_scale_slider.setValue(clamped)
+            self.image_scale_slider.blockSignals(False)
+        if self.watermark_settings.image_scale != clamped:
+            self.watermark_settings.image_scale = clamped
+        if self.watermark_settings.mode == "image":
+            self.preview.apply_settings(self.watermark_settings)
+
+    def _ensure_watermark_ready(self) -> bool:
+        if self.watermark_settings.mode == "image" and not self.watermark_settings.image_path:
+            QMessageBox.warning(self, "提示", "请先选择水印图片。")
+            return False
+        return True
+
     def _apply_position(self, ratio: QPointF) -> None:
         self.watermark_settings.position_ratio = ratio
         self.preview.apply_settings(self.watermark_settings)
@@ -673,6 +849,8 @@ class MainWindow(QMainWindow):
         if self.export_settings.output_dir == self.current_image.parent:
             QMessageBox.warning(self, "提示", "输出目录不能与原图目录相同")
             return
+        if not self._ensure_watermark_ready():
+            return
 
         self._sync_export_fields()
         try:
@@ -693,6 +871,8 @@ class MainWindow(QMainWindow):
         source_dirs = {path.parent for path in self.images}
         if self.export_settings.output_dir in source_dirs:
             QMessageBox.warning(self, "提示", "输出目录不能与原图目录相同")
+            return
+        if not self._ensure_watermark_ready():
             return
 
         self._sync_export_fields()
@@ -773,6 +953,18 @@ class MainWindow(QMainWindow):
         self.outline_check.blockSignals(False)
 
         self._update_color_button()
+
+        if hasattr(self, "mode_text_radio"):
+            self.mode_text_radio.blockSignals(True)
+            self.mode_image_radio.blockSignals(True)
+            is_image_mode = self.watermark_settings.mode == "image"
+            self.mode_text_radio.setChecked(not is_image_mode)
+            self.mode_image_radio.setChecked(is_image_mode)
+            self.mode_text_radio.blockSignals(False)
+            self.mode_image_radio.blockSignals(False)
+            self._update_mode_visibility()
+
+        self._sync_image_controls()
 
         if self.export_settings.output_dir:
             self.output_dir_edit.setText(str(self.export_settings.output_dir))

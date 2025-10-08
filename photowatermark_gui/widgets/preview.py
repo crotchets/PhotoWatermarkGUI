@@ -14,6 +14,7 @@ class DraggableWatermarkItem(QGraphicsObject):
     def __init__(self, on_position_changed, parent=None) -> None:
         super().__init__(parent)
         self._callback = on_position_changed
+        self._mode = "text"
         self._path = QPainterPath()
         self._rect = QRectF(0, 0, 1, 1)
         self._color = QColor(255, 255, 255, 180)
@@ -21,15 +22,30 @@ class DraggableWatermarkItem(QGraphicsObject):
         self._outline = False
         self._shadow_offset = 2.0
         self._outline_width = 1.5
+        self._pixmap = QPixmap()
+        self._opacity = 1.0
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True)
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, False)
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges, True)
 
     def boundingRect(self) -> QRectF:  # noqa: D401
+        if self._mode == "image":
+            return self._rect
         margin = max(self._shadow_offset if self._shadow else 0.0, self._outline_width if self._outline else 0.0)
         return self._rect.adjusted(-margin, -margin, margin, margin)
 
     def paint(self, painter: QPainter, option, widget=None) -> None:  # noqa: D401
+        if self._mode == "image":
+            if self._pixmap.isNull():
+                return
+            painter.save()
+            painter.setRenderHints(
+                QPainter.RenderHint.SmoothPixmapTransform | QPainter.RenderHint.Antialiasing
+            )
+            painter.setOpacity(self._opacity)
+            painter.drawPixmap(0, 0, self._pixmap)
+            painter.restore()
+            return
         if self._path.isEmpty():
             return
         painter.save()
@@ -57,6 +73,12 @@ class DraggableWatermarkItem(QGraphicsObject):
         painter.restore()
 
     def update_settings(self, settings: WatermarkSettings) -> None:
+        if settings.mode == "image":
+            self._update_image_mode(settings)
+        else:
+            self._update_text_mode(settings)
+
+    def _update_text_mode(self, settings: WatermarkSettings) -> None:
         font = QFont(settings.font_family or "Arial", pointSize=settings.font_size)
         font.setBold(settings.bold)
         font.setItalic(settings.italic)
@@ -78,7 +100,9 @@ class DraggableWatermarkItem(QGraphicsObject):
             rect = path.boundingRect()
 
         self.prepareGeometryChange()
+        self._mode = "text"
         self._path = path
+        self._pixmap = QPixmap()
         self._rect = rect
         alpha = int(255 * (settings.opacity / 100))
         self._color = QColor(settings.color or "#FFFFFF")
@@ -87,12 +111,41 @@ class DraggableWatermarkItem(QGraphicsObject):
         self._outline = settings.outline
         self._shadow_offset = max(2.0, font.pointSizeF() * 0.08)
         self._outline_width = max(1.5, font.pointSizeF() * 0.1)
+        self._opacity = 1.0
+        self.setTransformOriginPoint(self._rect.center())
+        self.setRotation(-settings.rotation)
+        self.update()
+
+    def _update_image_mode(self, settings: WatermarkSettings) -> None:
+        pixmap = QPixmap()
+        if settings.image_path:
+            pm = QPixmap(settings.image_path)
+            if not pm.isNull():
+                scale_percent = max(1, settings.image_scale)
+                scale_factor = scale_percent / 100.0
+                new_width = max(1, int(pm.width() * scale_factor))
+                new_height = max(1, int(pm.height() * scale_factor))
+                pm = pm.scaled(new_width, new_height, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+                pixmap = pm
+
+        rect = QRectF(0, 0, max(1, pixmap.width()), max(1, pixmap.height()))
+
+        self.prepareGeometryChange()
+        self._mode = "image"
+        self._path = QPainterPath()
+        self._pixmap = pixmap
+        self._rect = rect
+        self._shadow = False
+        self._outline = False
+        self._shadow_offset = 0.0
+        self._outline_width = 0.0
+        self._opacity = max(0.0, min(1.0, settings.opacity / 100.0))
         self.setTransformOriginPoint(self._rect.center())
         self.setRotation(-settings.rotation)
         self.update()
 
     def content_size(self) -> QPointF:
-        return QPointF(self._rect.width(), self._rect.height())
+        return QPointF(max(1.0, self._rect.width()), max(1.0, self._rect.height()))
 
     def itemChange(self, change, value):  # noqa: D401
         if change == QGraphicsItem.GraphicsItemChange.ItemPositionHasChanged and self._callback:
@@ -116,6 +169,7 @@ class ImagePreview(QGraphicsView):
         self._image_size = None
         self._watermark_item = DraggableWatermarkItem(self._on_position_changed)
         self._on_ratio_changed = on_position_ratio_changed
+        self._current_settings: WatermarkSettings | None = None
 
     def clear(self) -> None:
         self.scene().clear()
@@ -130,9 +184,13 @@ class ImagePreview(QGraphicsView):
         self._image_size = image.size()
         self.scene().addItem(self._watermark_item)
         self._watermark_item.setZValue(1)
+        if self._current_settings:
+            self._watermark_item.update_settings(self._current_settings)
+            self._set_position_ratio(self._current_settings.position_ratio)
         self._center_view()
 
     def apply_settings(self, settings: WatermarkSettings) -> None:
+        self._current_settings = settings
         self._watermark_item.update_settings(settings)
         self._set_position_ratio(settings.position_ratio)
 

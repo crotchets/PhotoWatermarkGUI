@@ -21,6 +21,9 @@ class WatermarkSettings:
     color: str = "#FFFFFF"
     shadow: bool = False
     outline: bool = False
+    mode: str = "text"  # text or image
+    image_path: Optional[str] = None
+    image_scale: int = 100
     position_ratio: QPointF = field(default_factory=lambda: QPointF(0.5, 0.5))
     rotation: float = 0.0
 
@@ -35,6 +38,9 @@ class WatermarkSettings:
             "color": self.color,
             "shadow": self.shadow,
             "outline": self.outline,
+            "mode": self.mode,
+            "image_path": self.image_path,
+            "image_scale": self.image_scale,
             "rotation": self.rotation,
             "position_ratio": {
                 "x": self.position_ratio.x(),
@@ -57,6 +63,9 @@ class WatermarkSettings:
             color=raw.get("color", "#FFFFFF"),
             shadow=bool(raw.get("shadow", False)),
             outline=bool(raw.get("outline", False)),
+            mode=raw.get("mode", "text"),
+            image_path=raw.get("image_path"),
+            image_scale=int(raw.get("image_scale", 100)),
             rotation=float(raw.get("rotation", 0.0)),
             position_ratio=QPointF(
                 float(ratio.get("x", 0.5)),

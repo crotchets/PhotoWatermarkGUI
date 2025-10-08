@@ -56,10 +56,9 @@ def _parse_color(color: str, alpha: int) -> QColor:
     return qcolor
 
 
-def render_text_watermark(
+def _render_text_layer(
     base_size: Tuple[int, int],
     watermark: WatermarkSettings,
-    font_path: Path | None = None,
 ) -> Image.Image:
     width, height = base_size
     if width <= 0 or height <= 0:
@@ -124,11 +123,71 @@ def render_text_watermark(
     return pil_image.copy()
 
 
+def _apply_opacity(pil_image: Image.Image, opacity: int) -> Image.Image:
+    if pil_image.mode != "RGBA":
+        pil_image = pil_image.convert("RGBA")
+    if opacity >= 100:
+        return pil_image
+    alpha = pil_image.split()[-1]
+    factor = max(0.0, min(1.0, opacity / 100.0))
+
+    def scale(value: int) -> int:
+        return int(value * factor)
+
+    alpha = alpha.point(scale)
+    pil_image.putalpha(alpha)
+    return pil_image
+
+
+def _render_image_layer(
+    base_size: Tuple[int, int],
+    watermark: WatermarkSettings,
+) -> Image.Image:
+    width, height = base_size
+    if width <= 0 or height <= 0 or not watermark.image_path:
+        return Image.new("RGBA", base_size, (0, 0, 0, 0))
+
+    image_path = Path(watermark.image_path)
+    if not image_path.exists():
+        raise FileNotFoundError(f"水印图片未找到：{image_path}")
+
+    overlay = Image.open(image_path).convert("RGBA")
+    scale_percent = max(1, watermark.image_scale)
+    scale_factor = scale_percent / 100.0
+    new_size = (
+        max(1, int(overlay.width * scale_factor)),
+        max(1, int(overlay.height * scale_factor)),
+    )
+    overlay = overlay.resize(new_size, Image.Resampling.LANCZOS)
+    overlay = _apply_opacity(overlay, watermark.opacity)
+
+    if watermark.rotation:
+        overlay = overlay.rotate(-watermark.rotation, expand=True, resample=Image.Resampling.BICUBIC)
+
+    layer = Image.new("RGBA", base_size, (0, 0, 0, 0))
+    available_w = max(width - overlay.width, 1)
+    available_h = max(height - overlay.height, 1)
+    pos_x = int(watermark.position_ratio.x() * available_w)
+    pos_y = int(watermark.position_ratio.y() * available_h)
+
+    layer.paste(overlay, (pos_x, pos_y), mask=overlay)
+    return layer
+
+
+def render_watermark_layer(
+    base_size: Tuple[int, int],
+    watermark: WatermarkSettings,
+) -> Image.Image:
+    if watermark.mode == "image":
+        return _render_image_layer(base_size, watermark)
+    return _render_text_layer(base_size, watermark)
+
+
 def compose_watermark(
     image: Image.Image,
     watermark_settings: WatermarkSettings,
 ) -> Image.Image:
-    watermark_layer = render_text_watermark(image.size, watermark_settings)
+    watermark_layer = render_watermark_layer(image.size, watermark_settings)
     return Image.alpha_composite(image.convert("RGBA"), watermark_layer)
 
 
