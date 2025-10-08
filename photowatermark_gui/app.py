@@ -126,6 +126,8 @@ class MainWindow(QMainWindow):
         self.batch_export_button.clicked.connect(self._export_all)
 
         self._update_export_buttons()
+        self._update_quality_controls()
+        self._update_scale_controls()
 
         import_action = QAction("导入图片", self)
         import_action.triggered.connect(self._prompt_import_images)
@@ -253,6 +255,32 @@ class MainWindow(QMainWindow):
         self.format_combo.addItems(["自动", "JPEG", "PNG"])
         self.format_combo.currentIndexChanged.connect(self._update_output_format)
         form.addRow("输出格式", self.format_combo)
+
+        quality_container = QWidget()
+        quality_layout = QHBoxLayout(quality_container)
+        quality_layout.setContentsMargins(0, 0, 0, 0)
+        self.jpeg_quality_slider = QSlider(Qt.Orientation.Horizontal)
+        self.jpeg_quality_slider.setRange(0, 100)
+        self.jpeg_quality_slider.setValue(self.export_settings.jpeg_quality)
+        self.jpeg_quality_slider.valueChanged.connect(self._on_jpeg_quality_changed)
+        self.jpeg_quality_label = QLabel(str(self.export_settings.jpeg_quality))
+        self.jpeg_quality_label.setFixedWidth(36)
+        self.jpeg_quality_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        quality_layout.addWidget(self.jpeg_quality_slider)
+        quality_layout.addWidget(self.jpeg_quality_label)
+        form.addRow("JPEG 质量", quality_container)
+
+        self.scale_mode_combo = QComboBox()
+        self.scale_mode_combo.addItems(["不缩放", "按宽度", "按高度", "按百分比"])
+        self.scale_mode_combo.currentIndexChanged.connect(self._on_scale_mode_changed)
+        form.addRow("尺寸调整", self.scale_mode_combo)
+
+        self.scale_value_spin = QSpinBox()
+        self.scale_value_spin.setRange(1, 10000)
+        self.scale_value_spin.setValue(max(1, self.export_settings.scale_value))
+        self.scale_value_spin.valueChanged.connect(self._on_scale_value_changed)
+        self.scale_value_spin.setSingleStep(50)
+        form.addRow("目标值", self.scale_value_spin)
 
         self.export_current_button = QPushButton("导出当前图片")
         self.export_current_button.clicked.connect(self._export_current)
@@ -399,6 +427,82 @@ class MainWindow(QMainWindow):
     def _update_output_format(self) -> None:
         index = self.format_combo.currentIndex()
         self.export_settings.output_format = ["auto", "jpeg", "png"][index]
+        self._update_quality_controls()
+
+    def _on_jpeg_quality_changed(self, value: int) -> None:
+        value = max(0, min(100, value))
+        self.jpeg_quality_label.setText(str(value))
+        self.export_settings.jpeg_quality = value
+
+    def _set_jpeg_quality(self, value: int) -> None:
+        clamped = max(0, min(100, value))
+        self.jpeg_quality_slider.blockSignals(True)
+        self.jpeg_quality_slider.setValue(clamped)
+        self.jpeg_quality_slider.blockSignals(False)
+        self.jpeg_quality_label.setText(str(clamped))
+
+    def _update_quality_controls(self) -> None:
+        if not hasattr(self, "jpeg_quality_slider"):
+            return
+        is_jpeg = self.export_settings.output_format == "jpeg"
+        self.jpeg_quality_slider.setEnabled(is_jpeg)
+        self.jpeg_quality_label.setEnabled(is_jpeg)
+        self.jpeg_quality_label.setText(str(self.jpeg_quality_slider.value()))
+
+    def _on_scale_mode_changed(self, index: int) -> None:
+        mode = ["none", "width", "height", "percent"][index]
+        self.export_settings.scale_mode = mode
+        self._refresh_scale_value_constraints()
+
+    def _on_scale_value_changed(self, value: int) -> None:
+        if self.export_settings.scale_mode == "none":
+            return
+        self.export_settings.scale_value = max(1, value)
+
+    def _update_scale_controls(self) -> None:
+        if not hasattr(self, "scale_mode_combo"):
+            return
+        mode_index = {"none": 0, "width": 1, "height": 2, "percent": 3}
+        self.scale_mode_combo.blockSignals(True)
+        self.scale_mode_combo.setCurrentIndex(mode_index.get(self.export_settings.scale_mode, 0))
+        self.scale_mode_combo.blockSignals(False)
+        self._refresh_scale_value_constraints()
+
+    def _refresh_scale_value_constraints(self) -> None:
+        if not hasattr(self, "scale_value_spin"):
+            return
+        mode = self.export_settings.scale_mode
+        spin = self.scale_value_spin
+
+        if mode == "none":
+            spin.blockSignals(True)
+            spin.setEnabled(False)
+            spin.setSuffix("")
+            spin.blockSignals(False)
+            return
+
+        spin.blockSignals(True)
+        spin.setEnabled(True)
+        if mode == "percent":
+            spin.setRange(1, 400)
+            spin.setSuffix(" %")
+            spin.setSingleStep(5)
+            value = self.export_settings.scale_value
+            if value <= 0:
+                value = 100
+            value = max(1, min(400, value))
+            self.export_settings.scale_value = value
+        else:
+            spin.setRange(1, 10000)
+            spin.setSuffix(" px")
+            spin.setSingleStep(50)
+            value = self.export_settings.scale_value
+            if value <= 0:
+                value = 1920 if mode == "width" else 1080
+            value = max(1, min(10000, value))
+            self.export_settings.scale_value = value
+        spin.setValue(self.export_settings.scale_value)
+        spin.blockSignals(False)
 
     def _on_preview_position_changed(self, ratio: QPointF) -> None:
         self.watermark_settings.position_ratio = ratio
@@ -477,6 +581,11 @@ class MainWindow(QMainWindow):
         else:
             self.export_settings.naming_mode = "suffix"
         self.export_settings.output_format = ["auto", "jpeg", "png"][self.format_combo.currentIndex()]
+        self.export_settings.jpeg_quality = self.jpeg_quality_slider.value()
+        mode = ["none", "width", "height", "percent"][self.scale_mode_combo.currentIndex()]
+        self.export_settings.scale_mode = mode
+        if mode != "none":
+            self.export_settings.scale_value = self.scale_value_spin.value()
 
     def _export_current(self) -> None:
         if not self.current_image:
@@ -584,6 +693,9 @@ class MainWindow(QMainWindow):
 
         index = {"auto": 0, "jpeg": 1, "png": 2}.get(self.export_settings.output_format, 0)
         self.format_combo.setCurrentIndex(index)
+        self._set_jpeg_quality(self.export_settings.jpeg_quality)
+        self._update_quality_controls()
+        self._update_scale_controls()
         self._update_export_buttons()
 
     def closeEvent(self, event) -> None:
