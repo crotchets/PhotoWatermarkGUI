@@ -29,6 +29,7 @@ from PyQt6.QtWidgets import (
     QFontComboBox,
     QScrollArea,
     QSlider,
+    QDoubleSpinBox,
     QSpinBox,
     QSplitter,
     QTextEdit,
@@ -258,6 +259,25 @@ class MainWindow(QMainWindow):
         effect_layout.addStretch()
         form.addRow("特效", effect_container)
         self._register_text_row(form, effect_container)
+
+        rotation_container = QWidget()
+        rotation_layout = QHBoxLayout(rotation_container)
+        rotation_layout.setContentsMargins(0, 0, 0, 0)
+        rotation_layout.setSpacing(8)
+        self.rotation_slider = QSlider(Qt.Orientation.Horizontal)
+        self.rotation_slider.setRange(-3600, 3600)
+        self.rotation_slider.setSingleStep(10)
+        self.rotation_slider.setValue(int(round(self.watermark_settings.rotation * 10)))
+        self.rotation_slider.valueChanged.connect(self._on_rotation_slider_changed)
+        self.rotation_spin = QDoubleSpinBox()
+        self.rotation_spin.setDecimals(1)
+        self.rotation_spin.setRange(-360.0, 360.0)
+        self.rotation_spin.setSingleStep(1.0)
+        self.rotation_spin.setValue(self.watermark_settings.rotation)
+        self.rotation_spin.valueChanged.connect(self._on_rotation_spin_changed)
+        rotation_layout.addWidget(self.rotation_slider, stretch=3)
+        rotation_layout.addWidget(self.rotation_spin, stretch=1)
+        form.addRow("旋转角度", rotation_container)
 
         image_path_container = QWidget()
         image_path_layout = QHBoxLayout(image_path_container)
@@ -645,6 +665,32 @@ class MainWindow(QMainWindow):
         if self.watermark_settings.mode == "image":
             self.preview.apply_settings(self.watermark_settings)
 
+    def _on_rotation_slider_changed(self, value: int) -> None:
+        if not hasattr(self, "rotation_spin"):
+            return
+        angle = value / 10.0
+        if abs(self.rotation_spin.value() - angle) > 0.05:
+            self.rotation_spin.blockSignals(True)
+            self.rotation_spin.setValue(angle)
+            self.rotation_spin.blockSignals(False)
+        self._apply_rotation(angle)
+
+    def _on_rotation_spin_changed(self, value: float) -> None:
+        if not hasattr(self, "rotation_slider"):
+            return
+        slider_value = int(round(value * 10))
+        if self.rotation_slider.value() != slider_value:
+            self.rotation_slider.blockSignals(True)
+            self.rotation_slider.setValue(slider_value)
+            self.rotation_slider.blockSignals(False)
+        self._apply_rotation(value)
+
+    def _apply_rotation(self, value: float) -> None:
+        if abs(self.watermark_settings.rotation - value) < 0.05:
+            return
+        self.watermark_settings.rotation = value
+        self.preview.apply_settings(self.watermark_settings)
+
     def _ensure_watermark_ready(self) -> bool:
         if self.watermark_settings.mode == "image" and not self.watermark_settings.image_path:
             QMessageBox.warning(self, "提示", "请先选择水印图片。")
@@ -953,6 +999,16 @@ class MainWindow(QMainWindow):
         self.outline_check.blockSignals(False)
 
         self._update_color_button()
+
+        if hasattr(self, "rotation_spin"):
+            self.rotation_spin.blockSignals(True)
+            self.rotation_spin.setValue(self.watermark_settings.rotation)
+            self.rotation_spin.blockSignals(False)
+        if hasattr(self, "rotation_slider"):
+            slider_value = int(round(self.watermark_settings.rotation * 10))
+            self.rotation_slider.blockSignals(True)
+            self.rotation_slider.setValue(slider_value)
+            self.rotation_slider.blockSignals(False)
 
         if hasattr(self, "mode_text_radio"):
             self.mode_text_radio.blockSignals(True)

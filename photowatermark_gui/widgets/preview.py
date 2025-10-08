@@ -145,7 +145,8 @@ class DraggableWatermarkItem(QGraphicsObject):
         self.update()
 
     def content_size(self) -> QPointF:
-        return QPointF(max(1.0, self._rect.width()), max(1.0, self._rect.height()))
+        rect = self.mapRectToParent(self.boundingRect())
+        return QPointF(max(1.0, rect.width()), max(1.0, rect.height()))
 
     def itemChange(self, change, value):  # noqa: D401
         if change == QGraphicsItem.GraphicsItemChange.ItemPositionHasChanged and self._callback:
