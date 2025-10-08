@@ -73,9 +73,14 @@ class MainWindow(QMainWindow):
         splitter = QSplitter(Qt.Orientation.Horizontal)
         main_layout.addWidget(splitter)
 
-        self.image_list = ImageListWidget(self._add_images)
+        left_container = QWidget()
+        left_layout = QVBoxLayout(left_container)
+        self.image_list = ImageListWidget(self._add_images, self._remove_images)
         self.image_list.itemSelectionChanged.connect(self._handle_list_selection)
-        splitter.addWidget(self.image_list)
+        left_layout.addWidget(self.image_list, stretch=1)
+        self.batch_export_button = QPushButton("批量导出全部")
+        left_layout.addWidget(self.batch_export_button)
+        splitter.addWidget(left_container)
         splitter.setStretchFactor(0, 1)
 
         right_container = QWidget()
@@ -118,6 +123,9 @@ class MainWindow(QMainWindow):
         self.rename_template_btn.clicked.connect(self._rename_template)
         self.delete_template_btn.clicked.connect(self._delete_template)
         self.export_toolbar_button.clicked.connect(self._export_all)
+        self.batch_export_button.clicked.connect(self._export_all)
+
+        self._update_export_buttons()
 
         import_action = QAction("导入图片", self)
         import_action.triggered.connect(self._prompt_import_images)
@@ -246,9 +254,9 @@ class MainWindow(QMainWindow):
         self.format_combo.currentIndexChanged.connect(self._update_output_format)
         form.addRow("输出格式", self.format_combo)
 
-        self.export_button = QPushButton("开始导出")
-        self.export_button.clicked.connect(self._export_all)
-        form.addRow("操作", self.export_button)
+        self.export_current_button = QPushButton("导出当前图片")
+        self.export_current_button.clicked.connect(self._export_current)
+        form.addRow("导出当前", self.export_current_button)
 
         return group
 
@@ -280,10 +288,47 @@ class MainWindow(QMainWindow):
         if not self.current_image and self.images:
             self.image_list.setCurrentRow(0)
         QMessageBox.information(self, "完成", f"成功导入 {len(new_paths)} 张图片。")
+        self._update_export_buttons()
+
+    def _remove_images(self, paths: List[Path]) -> None:
+        to_remove = [p for p in paths if p in self.images]
+        if not to_remove:
+            return
+        for path in to_remove:
+            self.images.remove(path)
+            if self.current_image == path:
+                self.current_image = None
+
+        if not self.images:
+            self.image_list.clear()
+            self.preview.clear()
+            QMessageBox.information(self, "完成", "所有图片已被移除。")
+            self._update_export_buttons()
+            return
+
+        next_selection = self.current_image if self.current_image in self.images else self.images[0]
+        self.image_list.populate(self.images, selected=next_selection)
+        if next_selection in self.images:
+            index = self.images.index(next_selection)
+            self.image_list.setCurrentRow(index)
+            self.current_image = next_selection
+        else:
+            self.current_image = None
+        QMessageBox.information(self, "完成", f"已删除 {len(to_remove)} 张图片。")
+        self._update_export_buttons()
+
+    def _update_export_buttons(self) -> None:
+        has_images = bool(self.images)
+        self.batch_export_button.setEnabled(has_images)
+        self.export_toolbar_button.setEnabled(has_images)
+        self.export_current_button.setEnabled(has_images and self.current_image is not None)
 
     def _handle_list_selection(self) -> None:
         items = self.image_list.selectedItems()
         if not items:
+            self.current_image = None
+            self.preview.clear()
+            self._update_export_buttons()
             return
         item: QListWidgetItem = items[0]
         path: Path = item.data(Qt.ItemDataRole.UserRole)
@@ -294,6 +339,7 @@ class MainWindow(QMainWindow):
             return
         self.preview.set_image(image)
         self.preview.apply_settings(self.watermark_settings)
+        self._update_export_buttons()
 
     def _on_text_changed(self) -> None:
         self.watermark_settings.text = self.text_edit.toPlainText()
@@ -396,6 +442,7 @@ class MainWindow(QMainWindow):
         self.watermark_settings = WatermarkSettings.from_dict(data.get("watermark"))
         self.export_settings = ExportSettings.from_dict(data.get("export"))
         self._apply_settings_to_ui()
+        self._update_export_buttons()
         if self.current_image:
             image = image_loader.load_qimage(self.current_image)
             if not image.isNull():
@@ -412,6 +459,26 @@ class MainWindow(QMainWindow):
         else:
             self.export_settings.naming_mode = "suffix"
         self.export_settings.output_format = ["auto", "jpeg", "png"][self.format_combo.currentIndex()]
+
+    def _export_current(self) -> None:
+        if not self.current_image:
+            QMessageBox.information(self, "提示", "请先选择要导出的图片")
+            return
+        if not self.export_settings.output_dir:
+            QMessageBox.warning(self, "提示", "请先指定输出目录")
+            return
+        if self.export_settings.output_dir == self.current_image.parent:
+            QMessageBox.warning(self, "提示", "输出目录不能与原图目录相同")
+            return
+
+        self._sync_export_fields()
+        try:
+            self._export_single(self.current_image)
+        except Exception as exc:  # noqa: BLE001
+            QMessageBox.warning(self, "失败", f"导出失败：{exc}")
+            return
+
+        QMessageBox.information(self, "成功", f"已导出 {self.current_image.name}。")
 
     def _export_all(self) -> None:
         if not self.images:
@@ -464,6 +531,7 @@ class MainWindow(QMainWindow):
             self.image_list.setCurrentRow(0)
             self.current_image = self.images[0]
         self._apply_settings_to_ui()
+        self._update_export_buttons()
 
     def _apply_settings_to_ui(self) -> None:
         self.text_edit.blockSignals(True)
@@ -498,6 +566,7 @@ class MainWindow(QMainWindow):
 
         index = {"auto": 0, "jpeg": 1, "png": 2}.get(self.export_settings.output_format, 0)
         self.format_combo.setCurrentIndex(index)
+        self._update_export_buttons()
 
     def closeEvent(self, event) -> None:
         data = {
