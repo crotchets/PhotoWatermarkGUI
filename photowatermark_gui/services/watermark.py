@@ -119,7 +119,7 @@ def _render_text_layer(
 
     painter.end()
 
-    pil_image = ImageQt.ImageQt(image)
+    pil_image = ImageQt.fromqimage(image)
     return pil_image.copy()
 
 

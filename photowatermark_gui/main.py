@@ -6,7 +6,12 @@ from pathlib import Path
 
 from PyQt6.QtWidgets import QApplication
 
-from .app import MainWindow
+try:
+    from .app import MainWindow
+except ImportError:  # pragma: no cover - fallback when executed as script
+    package_root = Path(__file__).resolve().parent
+    sys.path.insert(0, str(package_root.parent))
+    from photowatermark_gui.app import MainWindow
 
 
 def main() -> None:

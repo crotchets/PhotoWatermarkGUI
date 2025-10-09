@@ -894,6 +894,7 @@ class MainWindow(QMainWindow):
             return
         if self.export_settings.output_dir == self.current_image.parent:
             QMessageBox.warning(self, "提示", "输出目录不能与原图目录相同")
+            
             return
         if not self._ensure_watermark_ready():
             return
@@ -902,6 +903,7 @@ class MainWindow(QMainWindow):
         try:
             self._export_single(self.current_image)
         except Exception as exc:  # noqa: BLE001
+            print(exc)
             QMessageBox.warning(self, "失败", f"导出失败：{exc}")
             return
 
